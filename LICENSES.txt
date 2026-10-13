@@ -9,6 +9,19 @@
 - accidentalSharp (`U+E262`)
 - accidentalNatural (`U+E261`)
 
+Bravura 1.482 から次の符尾も利用しています。
+
+- flag8thUp (`U+E240`)
+- flag8thDown (`U+E241`)
+- flag16thUp (`U+E242`)
+- flag16thDown (`U+E243`)
+
+Source: https://github.com/steinbergmedia/bravura
+
+Bravura 1.482 font metadata copyright notice:
+
+> Copyright © 2026, Steinberg Media Technologies GmbH (http://www.steinberg.net/), with Reserved Font Name "Bravura".
+
 Font metadata copyright notice:
 
 > Copyright © 2016, Steinberg Media Technologies GmbH (http://www.steinberg.net/), with Reserved Font Name "Bravura".

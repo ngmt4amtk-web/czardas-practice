@@ -1,5 +1,5 @@
 import{STRINGS,ROMAN,diatonic,pitchLabel,placement}from'./score.mjs';
-import{CLEF_PATH,SHARP_PATH,NATURAL_PATH}from'./glyphs.mjs';
+import{CLEF_PATH,SHARP_PATH,NATURAL_PATH,FLAGS}from'./glyphs.mjs';
 const line=(a,b,c,d,attrs='')=>`<line x1="${a}" y1="${b}" x2="${c}" y2="${d}" ${attrs}/>`;
 const txt=(x,y,t,a='')=>`<text x="${x}" y="${y}" ${a}>${t}</text>`;
 const flat=(x,y,s=1)=>`<path d="M${x} ${y-20*s}v27 Q${x+15*s} ${y-5*s} ${x} ${y+2*s}" fill="none" stroke="currentColor" stroke-width="1.9"/>`;
@@ -17,7 +17,7 @@ export function engrave(m,currentIndex=0,passed=new Set()){
  const beams=[];let group=[];
  for(const p of points){const e=p.e;if(e.grace||(!e.rest&&e.beats<1)){const prev=group.at(-1);if(prev&&(e.grace!==prev.e.grace||Math.floor(p.beat+.00001)!==Math.floor(prev.beat+.00001))){beams.push(group);group=[];}group.push(p);}else{if(group.length)beams.push(group);group=[];}}if(group.length)beams.push(group);
  const beamInfo=new Map();
- for(const group of beams){const grace=group[0].e.grace,down=!grace&&group.reduce((sum,p)=>sum+p.y,0)/group.length<top+24,beamY=down?Math.max(...group.map(p=>p.y))+37:Math.min(...group.map(p=>p.y))-(grace?29:37);for(const p of group)beamInfo.set(p,{down,beamY,group});}
+ for(const group of beams){const grace=group[0].e.grace,down=!grace&&group.reduce((sum,p)=>sum+p.y,0)/group.length<top+24,stemLength=grace?29:group.length===1?42:37,beamY=down?Math.max(...group.map(p=>p.y))+stemLength:Math.min(...group.map(p=>p.y))-stemLength;for(const p of group)beamInfo.set(p,{down,beamY,group});}
  // 符尾・連桁・下加線を含む音符の下端より弦名を下へ置く。
  const noteBottom=Math.max(bottom,...points.filter(p=>!p.e.rest).map(p=>{const info=beamInfo.get(p),down=info?info.down:p.y<top+24;return Math.max(p.y+9,info?.beamY??p.y+(down?36:-36));}));
  const labelY=Math.max(bottom+27,noteBottom+20),height=labelY+13;
@@ -54,7 +54,11 @@ export function engrave(m,currentIndex=0,passed=new Set()){
  out+=txt(x,labelY,`${e.string}線`, `class="string-label" text-anchor="middle" font-size="${e.grace?11:14}" fill="${s.color}"`);
  out+='</g>';
  }
- for(const group of beams){const info=beamInfo.get(group[0]),sx=p=>p.x+(info.down?-7.7:group[0].e.grace?5:7.7);out+='<g class="beam-or-flag">';if(group.length>1){out+=line(sx(group[0]),info.beamY,sx(group.at(-1)),info.beamY,'stroke="#283b31" stroke-width="4"');for(let i=0;i<group.length;i++){const p=group[i];if(p.e.beats===.25||p.e.grace){const next=group[i+1],prev=group[i-1],xx=next&&(next.e.beats===.25||next.e.grace)?sx(next):prev&&(prev.e.beats===.25||prev.e.grace)?sx(p):sx(p)+(i===0?10:-10);out+=line(sx(p),info.beamY+(info.down?-6:6),xx,info.beamY+(info.down?-6:6),'stroke="#283b31" stroke-width="3"');}}}else{const p=group[0],x=sx(p),y=info.beamY;out+=`<path d="M${x} ${y}q${info.down?-17:17} ${info.down?-13:13} 2 ${info.down?-25:25}" fill="none" stroke="#283b31" stroke-width="2.5"/>`;if(p.e.beats===.25)out+=`<path d="M${x} ${y+(info.down?-6:6)}q${info.down?-17:17} ${info.down?-13:13} 2 ${info.down?-25:25}" fill="none" stroke="#283b31" stroke-width="2"/>`;}out+='</g>';}
+ for(const group of beams){const info=beamInfo.get(group[0]),sx=p=>p.x+(info.down?-7.7:group[0].e.grace?5:7.7);out+='<g class="beam-or-flag">';if(group.length>1){out+=line(sx(group[0]),info.beamY,sx(group.at(-1)),info.beamY,'stroke="#283b31" stroke-width="4"');for(let i=0;i<group.length;i++){const p=group[i];if(p.e.beats===.25||p.e.grace){const next=group[i+1],prev=group[i-1],xx=next&&(next.e.beats===.25||next.e.grace)?sx(next):prev&&(prev.e.beats===.25||prev.e.grace)?sx(p):sx(p)+(i===0?10:-10);out+=line(sx(p),info.beamY+(info.down?-6:6),xx,info.beamY+(info.down?-6:6),'stroke="#283b31" stroke-width="3"');}}}else{
+   const p=group[0],x=sx(p),kind=`flag${p.e.beats===.25?'16th':'8th'}${info.down?'Down':'Up'}`,scale=p.e.grace?8.4:12;
+   // SMuFL attachment anchors meet the stem's left edge; both flags extend right.
+   out+=`<path class="note-flag" data-flag="${kind}" d="${FLAGS[kind]}" transform="translate(${x-1} ${info.beamY}) scale(${scale})" fill="#283b31"/>`;
+ }out+='</g>';}
  points.forEach((p,i)=>{if(p.e.tie){const prev=points[i-1];const x=prev&&!prev.e.rest?prev.x:p.x-35;out+=`<path d="M${x+5} ${p.y-14} Q${(x+p.x)/2} ${p.y-34} ${p.x-5} ${p.y-14}" fill="none" stroke="#526556" stroke-width="1.4"/>`;}});
  // 歌う部分のフレーズ内スラーと装飾音のまとまり。
  for(const [a,b] of m.slurs||[]){const p=points.find(p=>p.e.eventIndex===a),q=points.find(p=>p.e.eventIndex===b);if(p&&q){const startX=p.x+(p.e.harmonic?14:0),endX=q.x-(q.e.harmonic?14:0),startY=p.y-(p.e.staccato?29:17),endY=q.y-(q.e.staccato?29:17),archY=Math.min(startY,endY)-22;out+=`<path class="slur" d="M${startX} ${startY}Q${(startX+endX)/2} ${archY} ${endX} ${endY}" fill="none" stroke="#526556" stroke-width="1.3"/>`;}}
