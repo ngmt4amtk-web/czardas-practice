@@ -80,6 +80,7 @@ function setRange(range, {index = null, fromUrl = false} = {}) {
 function syncUrl() {
   const {start, end} = state.range;
   const want = `?m=${start === end ? start : `${start}-${end}`}`;
+  $('mic-link').href = 'mic.html' + want;
   try {
     if (location.search !== want) history.replaceState(null, '', location.pathname + want + location.hash);
   } catch {

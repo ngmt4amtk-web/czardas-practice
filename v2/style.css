@@ -469,3 +469,6 @@ main {
 .volume-field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: inherit; }
 .volume-field input { width: 120px; }
 .volume-field output { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 「マイクで測る」はリンクだが、見た目は隣のボタンと同じ札にする */
+a.chip { display: inline-flex; align-items: center; color: inherit; text-decoration: none; }

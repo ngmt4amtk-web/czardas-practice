@@ -37,7 +37,9 @@ const accidentalSpace = e => accidentals.get(e) ? .7 : 0;
 const shiftLeft = e => accidentals.get(e) ? 16 : 0;
 // 音名の字が長い音（ファ♯・シ♭など）は、隣の音名とくっつかないよう少し幅を足す。
 const labelSpace = e => e.rest ? 0 : .21 * Math.max(0, pitchLabel(e.pitch).length - 1);
-const eventWeight = e => (e.grace ? 1.05 : 1 + .6 * e.beats) + (isShift(e) ? .55 : 0) + accidentalSpace(e) + labelSpace(e);
+// 反復の始まりの小節は、最初の音の前に点の分の幅をあける（装飾音が無くなって符尾に重なったため）。
+const afterRepeatDots = new Set(MEASURES.filter(m => m.repeatStart).map(m => m.events.find(e => !e.grace)));
+const eventWeight = e => (e.grace ? 1.05 : 1 + .6 * e.beats) + (isShift(e) ? .55 : 0) + accidentalSpace(e) + labelSpace(e) + (afterRepeatDots.has(e) ? .6 : 0);
 
 const r2 = v => {
   if (!Number.isFinite(v)) throw new Error('座標が数になりません: ' + v);
@@ -193,7 +195,7 @@ function renderSystem(measures, cfg) {
     for (const e of m.events) {
       if (e.grace) continue; // 装飾音は描かない・鳴らさない（本人 2026-11-05「装飾音いらない」）
       const w = eventWeight(e);
-      cells.push({e, x: x0 + (cursor + (w + accidentalSpace(e)) / 2) * unit, w: w * unit, beat: localBeat, measure: m.number});
+      cells.push({e, x: x0 + (cursor + (w + accidentalSpace(e) + (afterRepeatDots.has(e) ? .6 : 0)) / 2) * unit, w: w * unit, beat: localBeat, measure: m.number});
       cursor += w;
       localBeat += e.beats;
     }
@@ -526,7 +528,9 @@ function renderSystem(measures, cfg) {
 
     // 反復記号の点
     if (m.repeatStart) {
-      body += `<g class="repeat-dots"><circle cx="${r2(b.x0 + 8)}" cy="${r2(staffTop + 18)}" r="2.4" fill="${INK}"/><circle cx="${r2(b.x0 + 8)}" cy="${r2(staffTop + 30)}" r="2.4" fill="${INK}"/></g>`;
+      // 段の頭では、点を小節線のすぐ右に置く（音符から離す）。
+      const dotX = (b === bounds[0] ? headW - 6 : b.x0) + 8;
+      body += `<g class="repeat-dots"><circle cx="${r2(dotX)}" cy="${r2(staffTop + 18)}" r="2.4" fill="${INK}"/><circle cx="${r2(dotX)}" cy="${r2(staffTop + 30)}" r="2.4" fill="${INK}"/></g>`;
     }
     if (m.repeatEnd) {
       body += `<g class="repeat-dots"><circle cx="${r2(b.x1 - 8)}" cy="${r2(staffTop + 18)}" r="2.4" fill="${INK}"/><circle cx="${r2(b.x1 - 8)}" cy="${r2(staffTop + 30)}" r="2.4" fill="${INK}"/></g>`;
