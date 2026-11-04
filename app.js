@@ -1,77 +1,519 @@
-import{MEASURES,NOTES,SECTIONS,PHRASES,STRINGS,phraseFor,pitchLabel,positionLabel,frequencyFor,placement,handShape,instructionFor}from'./score.mjs';
-import{engrave}from'./engrave.mjs';
-import{PracticeSession}from'./session.mjs';
-import{PitchSmoother,NoteJudge,centsBetween}from'./pitch.mjs';
-import{ViolinAudio}from'./audio.mjs';
-import{PhrasePlayer}from'./playback.mjs';
-const $=id=>document.getElementById(id),session=new PracticeSession(),judge=new NoteJudge(),smoother=new PitchSmoother();
-const prefs={tuning:442,tolerance:40,sensitivity:'normal',volume:.75,autoReference:true,mode:'measure',bpm:72};
-let running=false,starting=false,startToken=0,navToken=0,pendingAdvance=null,playbackUntil=0,wakeLock=null,phrase=PHRASES[0],customRange=false;
-const audio=new ViolinAudio(onReading,message=>{stopMic();status(message);});
-const player=new PhrasePlayer(audio,onPlayback,onPhase);
-try{const s=JSON.parse(localStorage.getItem('czardas-practice-v1')||'null');if(s){for(const[k,values]of Object.entries({tuning:[440,441,442,443],tolerance:[25,40,60],sensitivity:['normal','quiet'],mode:['measure','phrase']}))if(values.includes(s[k]))prefs[k]=s[k];if(s.volume>=.2&&s.volume<=1)prefs.volume=s.volume;if(s.bpm>=30&&s.bpm<=180)prefs.bpm=s.bpm;if(typeof s.autoReference==='boolean')prefs.autoReference=s.autoReference;if(Number.isInteger(s.measure)&&s.measure>=1&&s.measure<=MEASURES.length){phrase=phraseFor(s.measure);session.setRange(phrase.start,phrase.end);session.seek(s.measure);}}}catch{}
-const hash=new URLSearchParams(location.hash.slice(1));if(hash.has('m')){const m=+hash.get('m');if(Number.isInteger(m)&&m>=1&&m<=MEASURES.length){phrase=phraseFor(m);session.setRange(phrase.start,phrase.end);session.seek(m);}}
-function save(){try{localStorage.setItem('czardas-practice-v1',JSON.stringify({...prefs,measure:session.measure}));}catch{}}
-function status(s){if($('status-text').textContent!==s)$('status-text').textContent=s;}
-function error(e){$('error').textContent=e.message||String(e);$('error').hidden=false;}
-function cancelAdvance(){if(pendingAdvance!==null)clearTimeout(pendingAdvance);pendingAdvance=null;document.body.classList.remove('accepted');}
-function resetInput(release=false){cancelAdvance();smoother.reset();judge.reset({requireRelease:release,ignoreUntil:playbackUntil});$('needle').hidden=true;$('pitch-hint').textContent='真ん中に合わせる';}
-function shapeMarkup(n){const shape=handShape(n);if(!shape)return '';const lo=Math.min(...shape.notes.map(x=>x.midi))-1,hi=Math.max(...shape.notes.map(x=>x.midi))+1,scale=245/(hi-lo),color=STRINGS[n.string].color;let out=`<svg viewBox="0 0 300 57" role="img" aria-label="${n.string}線、第${n.position}ポジションの指の間隔。${shape.close.length?shape.close.join('、')+'指を寄せる':'指の間隔の目安'}"><text x="8" y="28" font-size="11" fill="#6c776b">低</text><text x="278" y="28" font-size="11" fill="#6c776b">高</text><line x1="26" y1="24" x2="271" y2="24" stroke="#afbdab"/>`;for(let i=0;i<shape.notes.length;i++){const f=shape.notes[i],x=26+(f.midi-lo)*scale,active=f.finger===n.finger;out+=`<circle cx="${x}" cy="24" r="${active?14:11}" fill="${active?color:'#fffef9'}" stroke="${color}" stroke-width="${active?2:1}"/><text x="${x}" y="29" font-size="14" text-anchor="middle" fill="${active?'white':color}">${f.finger}</text>`;if(i<3){const next=shape.notes[i+1],mid=(x+26+(next.midi-lo)*scale)/2;out+=`<text x="${mid}" y="52" font-size="9" text-anchor="middle" fill="#6c776b">${next.midi-f.midi===1?'寄せる':next.midi-f.midi===2?'あける':'伸ばす'}</text>`;}}return out+'</svg>';}
-function render(){
- const m=session.bar,n=session.current,s=n?STRINGS[n.string]:null,sec=SECTIONS.find(x=>x.id===m.section);
- $('score').innerHTML=engrave(m,session.noteIndex,session.passed);$('measure-title').textContent=`練習${m.number}小節`;$('source-place').textContent=`P${m.page} · この場面の${m.sectionNumber}小節目`;$('section-tag').textContent=sec.name;
- $('previous').disabled=m.number===1;$('next').disabled=m.number===MEASURES.length;$('note-count').textContent=n?`${session.noteIndex+1} / ${m.notes.length} 音`:'1小節の休み';
- $('finger-disc').textContent=n?n.finger:'休';$('finger-disc').style.background=s?.color||'#819078';$('target-string').textContent=n?`${n.string}線 · ${n.finger===0?'開放弦':n.finger+'指'}`:'ここは休み';$('target-string').style.color=s?.color||'';
- $('target-note').innerHTML=n?`${pitchLabel(n.pitch)} <small>${n.pitch.replace('#','♯').replace('b','♭')}</small>`:'2拍';$('target-position').textContent=n?positionLabel(n):'次の音を準備';$('shape-position').textContent=n?positionLabel(n):'休符';
- $('instruction').textContent=n?instructionFor(n):'ここは音を出さず、2拍休みます。';$('hand-shape').innerHTML=n?shapeMarkup(n):'';
- const next=n?NOTES[n.ordinal+1]:NOTES.find(x=>x.measure>m.number);$('next-note').textContent=next&&next.measure<=session.end?`次：${next.string}線 ${next.finger===0?'開放弦':next.finger+'指'} · ${pitchLabel(next.pitch)} · ${positionLabel(next)}`:'選んだ範囲の最後です。';
- $('completion').hidden=!session.done;$('completion-text').textContent=`音程を確認した音：${session.passed.size}音。`;$('reference').disabled=!n;$('start-mic').disabled=!n;$('measurement-range').textContent=`測定範囲：練習${session.start}〜${session.end}小節`;
- $('phrase-title').textContent=customRange?'自分で選んだ範囲':phrase.title;$('phrase-range').textContent=`練習${session.start}〜${session.end}小節 · ${((session.end-session.start+1)*2)}拍`;
- $('previous-phrase').disabled=phrase.id===0;$('next-phrase').disabled=phrase.id===PHRASES.length-1;$('range-start').value=session.start;$('range-end').value=session.end;save();
+import {PHRASES, SECTIONS, MEASURES, pitchLabel} from './score.mjs';
+import {engraveSystems} from './system.mjs';
+import {shiftsIn, firstStoppedIn, POSITION_NAMES} from './marks.mjs';
+import {PhrasePlayer, phraseTimeline} from './playback.mjs';
+import {ViolinAudio} from './audio.mjs';
+import {parseRange, segments, phraseFor, stepRange, splitPhrase, MIN_MEASURE, MAX_MEASURE} from './route.mjs';
+
+const $ = id => document.getElementById(id);
+
+const store = {
+  get(key, fallback) {
+    try {
+      const raw = localStorage.getItem('czardas.v2.' + key);
+      return raw === null ? fallback : JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem('czardas.v2.' + key, JSON.stringify(value));
+    } catch {
+      /* 保存できない環境では黙って諦める */
+    }
+  },
+};
+
+const state = {
+  unit: store.get('unit', 4) === 2 ? 2 : 4,
+  range: {start: 1, end: 4},
+  index: 0,
+  tempo: store.get('tempo', SECTIONS[0].tempo),
+  tempoTouched: store.get('tempoTouched', false),
+  repeat: store.get('repeat', 'inf'),
+  countIn: store.get('countIn', true),
+  countPattern: ['1234', '1212', '121hai'].includes(store.get('countPattern', '1234')) ? store.get('countPattern', '1234') : '1234',
+  volume: store.get('volume', 60),
+  tuning: store.get('tuning', 442),
+  activeId: null,
+  playing: false,
+};
+
+// ---- 範囲の決まり ----
+const listFor = () => segments(state.unit);
+
+function titleFor(seg) {
+  if (!seg) return '';
+  const phrase = phraseFor(seg);
+  if (!phrase) return '';
+  const parts = state.unit === 2 ? splitPhrase(phrase, 2) : [phrase];
+  const which = parts.length > 1 ? (parts[0].start === seg.start ? ' 前半' : ' 後半') : '';
+  return phrase.title + which;
 }
-function stopPlayback(){player.stop();audio.stopTone();document.body.classList.remove('playing');$('start-phrase').textContent='お手本から始める';$('countdown').textContent='';$('bpm').disabled=false;document.querySelectorAll('[data-phase]').forEach(e=>e.classList.remove('active'));}
-function stopMic(){startToken++;navToken++;running=false;starting=false;cancelAdvance();audio.stop();audio.stopTone();playbackUntil=0;resetInput();$('start-mic').textContent='マイクで測定する';$('status-dot').classList.remove('live');$('input-level').style.width='0%';$('input-state').textContent='オフ';$('heard-note').textContent='—';$('heard-frequency').textContent='入力を待っています';if(wakeLock){wakeLock.release().catch(()=>{});wakeLock=null;}}
-function seek(m,i=0){navToken++;stopPlayback();const tail=playbackUntil>performance.now();audio.stopTone();playbackUntil=tail?performance.now()+700:0;session.seek(m,i);if(m<session.start||m>session.end){phrase=phraseFor(m);session.start=phrase.start;session.end=phrase.end;customRange=false;}resetInput(tail);render();status(running?'この音を弾いてください。':'マイクを始めて、この音を弾く');$('practice-status').textContent='まずお手本を1回聴きます。';}
-function choosePhrase(p){stopPlayback();phrase=p;customRange=false;session.setRange(p.start,p.end);prefs.bpm=p.tempo;$('bpm').value=prefs.bpm;$('bpm-value').textContent=prefs.bpm;seek(p.start);closeDialog('picker');}
-function setMode(mode){stopMic();stopPlayback();prefs.mode=mode;document.body.dataset.mode=mode;$('measure-mode').setAttribute('aria-pressed',String(mode==='measure'));$('phrase-mode').setAttribute('aria-pressed',String(mode==='phrase'));$('measurement-controls').hidden=mode!=='measure';$('phrase-controls').hidden=mode!=='phrase';$('error').hidden=true;status('マイクを始めて、この音を弾く');$('practice-status').textContent='まずお手本を1回聴きます。';save();}
-async function toggleMic(){
- if(running||starting){stopMic();status('一時停止中。');return;}
- if(!session.current){session.advance({manual:true});render();}if(session.done){session.seek(session.start);if(!session.current)session.advance({manual:true});render();}
- stopPlayback();const token=++startToken;starting=true;$('start-mic').textContent='接続を中止';$('error').hidden=true;status('マイクの許可を待っています。');
- try{const ok=await audio.start();if(!ok||token!==startToken)return;starting=false;running=true;resetInput();$('start-mic').textContent='測定を止める';$('status-dot').classList.add('live');$('microphone-details').textContent=`マイク入力 ${Math.round(audio.ctx.sampleRate/1000)} kHz。音声は端末内だけで解析します。`;if(navigator.wakeLock)try{const lock=await navigator.wakeLock.request('screen');if(running&&token===startToken)wakeLock=lock;else await lock.release();}catch{}}
- catch(e){if(token!==startToken)return;stopMic();error(e);status('マイクを始められませんでした。');}
+
+function sectionTempo(start) {
+  const s = SECTIONS.find(x => start >= x.start && start <= x.end);
+  return s ? s.tempo : SECTIONS[0].tempo;
 }
-async function reference(){const n=session.current;if(!n)return;cancelAdvance();const token=++navToken;playbackUntil=Infinity;resetInput(true);status('お手本の音を聴いてください。');try{const duration=await audio.play(frequencyFor(n.midi,prefs.tuning),prefs.volume);if(token!==navToken)return;playbackUntil=performance.now()+duration+650;resetInput(running);setTimeout(()=>{if(token===navToken&&!running)status('この高さを目安に弾いてみてください。');},duration);}catch(e){if(token!==navToken)return;playbackUntil=0;resetInput();error(e);}}
-function advance(manual=false){const tail=playbackUntil>performance.now();cancelAdvance();const result=session.advance({manual});if(result.done){stopMic();render();status('選んだ範囲が終わりました。');return;}playbackUntil=tail?performance.now()+700:0;resetInput(result.repeated||tail);render();status(result.repeated?'同じ音です。一度止めて、弾き直してください。':running?'次の音を弾いてください。':'マイクを始めて、この音を弾く');}
-function onReading(raw,now,{calibrating,minRms}){
- if(!running||prefs.mode!=='measure'||!session.current)return;
- $('input-level').style.width=`${Math.max(0,Math.min(100,100*(Math.log10(Math.max(raw.rms,.00001))+5)/4))}%`;$('input-state').textContent=raw.clipped?'大きすぎ':raw.rms>=minRms?'入力あり':'静か';
- if(calibrating){status('少し音を止めて、マイクを調整中。');return;}if(now<playbackUntil){status('お手本のあと、一度音を止めて弾く。');return;}
- const r=smoother.push(raw,now),n=session.current,target=frequencyFor(n.midi,prefs.tuning);
- if(r.frequency){const midi=Math.round(69+12*Math.log2(r.frequency/prefs.tuning)),names=['ド','ド♯','レ','レ♯','ミ','ファ','ファ♯','ソ','ソ♯','ラ','ラ♯','シ'],cents=centsBetween(r.frequency,target);$('heard-note').textContent=`${names[(midi%12+12)%12]}${Math.floor(midi/12)-1}`;$('heard-frequency').textContent=`${r.frequency.toFixed(1)} Hz · ${cents>0?'+':''}${Math.round(cents)}¢`;$('needle').hidden=false;$('needle').style.left=`${Math.max(0,Math.min(100,50+cents/3))}%`;$('pitch-hint').textContent=Math.abs(cents)<=prefs.tolerance?'合っています':cents>0?'高い · 少し下げる':'低い · 少し上げる';}
- else{$('heard-note').textContent='—';$('heard-frequency').textContent=raw.rms>=minRms?'音の高さを確認中':'音を待っています';$('needle').hidden=true;$('pitch-hint').textContent='1音をのばして弾く';}
- if(pendingAdvance!==null)return;const result=judge.observe(r,target,now,{tolerance:prefs.tolerance,holdMs:n.grace?130:180,minRms});
- if(judge.needsRelease){status('一度音を止めてから、もう一度弾く。');return;}
- if(result==='accepted'){status('合いました。次の音へ。');document.body.classList.add('accepted');const id=n.id;pendingAdvance=setTimeout(()=>{pendingAdvance=null;if(running&&session.current?.id===id)advance();},230);}
- else if(result==='reference'&&prefs.autoReference)reference();else if(raw.clipped)status('音が大きすぎます。端末を少し離してください。');else if(r.frequency)status(Math.abs(centsBetween(r.frequency,target))<=prefs.tolerance?'そのまま少しのばしてください。':'目標の音の高さに合わせてみましょう。');else status('色付きの音を弾いてください。');
+
+function setRange(range, {index = null, fromUrl = false} = {}) {
+  const start = Math.min(Math.max(range.start, MIN_MEASURE), MAX_MEASURE);
+  const end = Math.min(Math.max(range.end, start), MAX_MEASURE);
+  state.range = {start, end};
+  const list = listFor();
+  const found = list.findIndex(s => s.start === start && s.end === end);
+  state.index = index !== null ? index : found >= 0 ? found : null;
+  state.activeId = null;
+  if (!state.tempoTouched) {
+    state.tempo = sectionTempo(start);
+    $('tempo-value').textContent = String(state.tempo);
+  }
+  syncUrl();
+  paintRange();
+  renderShifts();
+  render();
+  if (!fromUrl) $('picker').hidden = true;
 }
-function onPlayback(ev){session.measure=ev.measure;if(ev.note)session.noteIndex=ev.note.targetIndex;else session.noteIndex=0;session.done=false;render();if(ev.kind==='rest'){$('instruction').textContent='ここは休符。音を止めて待つ。';}}
-function onPhase(phase,count){const labels={loading:'音の準備をしています。',listen:'お手本を聴く。指の動きも見ておく。',count:'楽器を構えて、次の1拍目から。',together:'お手本と一緒に弾く。',again:'もう一度、お手本から。',done:'1回終わりました。もう一度練習できます。'};$('practice-status').textContent=labels[phase]||'';$('countdown').textContent=count||'';document.querySelectorAll('[data-phase]').forEach(e=>e.classList.toggle('active',e.dataset.phase===phase));if(phase==='done'){stopPlayback();}else{document.body.classList.add('playing');$('start-phrase').textContent='止める';$('bpm').disabled=true;}}
-async function togglePhrase(){if(player.active){stopPlayback();$('practice-status').textContent='止めました。お手本から再開できます。';return;}stopMic();$('error').hidden=true;session.done=false;session.passed.clear();try{await player.start({start:session.start,end:session.end,bpm:prefs.bpm,tuning:prefs.tuning,volume:prefs.volume,loop:$('phrase-loop').checked});}catch(e){stopPlayback();error(e);}}
-function openDialog(id){$(id).showModal();$(id+'-open').setAttribute('aria-expanded','true');}
-function closeDialog(id){$(id).close();$(id+'-open').setAttribute('aria-expanded','false');}
-function renderPicker(){const id=$('section-select').value,section=SECTIONS.find(s=>s.id===id);$('phrases').innerHTML='';for(const p of PHRASES.filter(p=>p.section===id)){const b=document.createElement('button');b.classList.toggle('selected',p.id===phrase.id&&!customRange);b.innerHTML=`<b>${p.title}</b><small>練習${p.start}〜${p.end}小節</small>`;b.addEventListener('click',()=>choosePhrase(p));$('phrases').append(b);}$('measure-grid').innerHTML='';for(const m of MEASURES.filter(m=>m.section===id)){const b=document.createElement('button');b.textContent=m.number;b.setAttribute('aria-label',`練習${m.number}小節から`);b.classList.toggle('selected',m.number===session.measure);b.addEventListener('click',()=>{seek(m.number);closeDialog('picker');});$('measure-grid').append(b);}}
-for(const s of SECTIONS){const option=document.createElement('option');option.value=s.id;option.textContent=`P${s.page} · ${s.name}`;$('section-select').append(option);}for(const m of MEASURES)for(const id of['range-start','range-end']){const option=document.createElement('option');option.value=m.number;option.textContent=`${m.number}小節`;$(id).append(option);}
-$('picker-open').addEventListener('click',()=>{$('section-select').value=session.bar.section;renderPicker();openDialog('picker');});$('section-select').addEventListener('change',renderPicker);
-for(const id of['picker','settings']){$(id+'-close').addEventListener('click',()=>closeDialog(id));$(id).addEventListener('close',()=>$(id+'-open').setAttribute('aria-expanded','false'));}
-$('settings-open').addEventListener('click',()=>openDialog('settings'));
-$('apply-range').addEventListener('click',()=>{const start=+$('range-start').value,end=+$('range-end').value;if(start>end){$('range-error').textContent='終了は開始以降の小節を選んでください。';return;}if(!MEASURES.slice(start-1,end).some(m=>m.notes.length)){$('range-error').textContent='音符のある小節を含めてください。';return;}$('range-error').textContent='';session.setRange(start,end);customRange=true;phrase=phraseFor(start);seek(start);closeDialog('picker');});
-$('previous').addEventListener('click',()=>seek(session.measure-1));$('next').addEventListener('click',()=>seek(session.measure+1));
-function scoreClick(e){const target=e.target.closest('[data-note-index]');if(target)seek(session.measure,+target.dataset.noteIndex);}$('score').addEventListener('click',scoreClick);$('score').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();scoreClick(e);}});
-$('measure-mode').addEventListener('click',()=>setMode('measure'));$('phrase-mode').addEventListener('click',()=>setMode('phrase'));$('start-mic').addEventListener('click',toggleMic);$('reference').addEventListener('click',reference);$('manual-next').addEventListener('click',()=>{navToken++;audio.stopTone();advance(true);});$('restart').addEventListener('click',()=>seek(session.start));$('measure-loop').addEventListener('change',e=>{session.loop=e.target.checked;});$('start-phrase').addEventListener('click',togglePhrase);$('previous-phrase').addEventListener('click',()=>choosePhrase(PHRASES[phrase.id-1]));$('next-phrase').addEventListener('click',()=>choosePhrase(PHRASES[phrase.id+1]));
-$('bpm').value=prefs.bpm;$('bpm-value').textContent=prefs.bpm;$('bpm').addEventListener('input',()=>{prefs.bpm=+$('bpm').value;$('bpm-value').textContent=prefs.bpm;save();});
-function updateTolerance(){const width=prefs.tolerance/3*2;document.querySelector('.good-zone').style.width=width+'%';document.querySelector('.good-zone').style.left=(50-width/2)+'%';}
-for(const id of['tuning','tolerance','sensitivity','volume']){$(id).value=prefs[id];$(id).addEventListener('change',()=>{stopPlayback();prefs[id]=id==='sensitivity'?$(id).value:+$(id).value;audio.sensitivity=prefs.sensitivity;resetInput(judge.needsRelease);updateTolerance();save();});}
-$('auto-reference').checked=prefs.autoReference;$('auto-reference').addEventListener('change',()=>{prefs.autoReference=$('auto-reference').checked;save();});audio.sensitivity=prefs.sensitivity;updateTolerance();
-document.addEventListener('visibilitychange',()=>{if(document.hidden){stopMic();stopPlayback();status('画面を閉じたため停止しました。');$('practice-status').textContent='画面を閉じたため停止しました。';}});window.addEventListener('pagehide',()=>{stopMic();stopPlayback();audio.dispose();});
-setMode(prefs.mode);render();
+
+function syncUrl() {
+  const {start, end} = state.range;
+  const want = `?m=${start === end ? start : `${start}-${end}`}`;
+  try {
+    if (location.search !== want) history.replaceState(null, '', location.pathname + want + location.hash);
+  } catch {
+    /* ファイルとして開いた時などは変えない */
+  }
+}
+
+function paintRange() {
+  const list = listFor();
+  const {start, end} = state.range;
+  const inList = state.index !== null && list[state.index];
+  const total = list.length;
+
+  if (inList) {
+    $('range-title').textContent = state.unit === 2 ? `2小節 ${state.index + 1} / ${total}` : `フレーズ ${state.index + 1} / ${total}`;
+    $('range-sub').textContent = `${start}〜${end}小節・${titleFor(inList) || '（題なし）'}`;
+  } else {
+    $('range-title').textContent = start === end ? `${start}小節（自分で選んだ範囲）` : `${start}〜${end}小節（自分で選んだ範囲）`;
+    $('range-sub').textContent = '小節番号をタップすると、その小節だけになります。';
+  }
+
+  const prev = stepRange(state.range, list, -1);
+  const next = stepRange(state.range, list, 1);
+  $('prev').disabled = !prev;
+  $('next').disabled = !next;
+  $('back-to-phrase').hidden = !!inList;
+
+  $('picker-start').value = String(start);
+  $('picker-end').value = String(end);
+}
+
+// ---- 楽譜 ----
+const hl = new Map();
+let systemsEl = null;
+let lastSystem = null;
+
+function render() {
+  if (!systemsEl) {
+    systemsEl = document.createElement('div');
+    systemsEl.id = 'systems';
+    $('score').appendChild(systemsEl);
+  }
+  const width = Math.max(280, Math.round((systemsEl.clientWidth || $('score').clientWidth || 360) - 2));
+  const svgs = engraveSystems(state.range.start, state.range.end, {
+    width,
+    activeId: state.activeId,
+    showLabels: true,
+  });
+  systemsEl.innerHTML = svgs.join('');
+  hl.clear();
+  for (const rect of systemsEl.querySelectorAll('[data-hl]')) {
+    const id = rect.getAttribute('data-hl');
+    if (!hl.has(id)) hl.set(id, []);
+    hl.get(id).push(rect);
+  }
+  lastSystem = null;
+  if (state.activeId) highlight(state.activeId, true);
+  paintShiftBadges();
+}
+
+function highlight(id, force) {
+  if (!force && state.activeId === id) return;
+  for (const group of hl.values()) for (const rect of group) rect.setAttribute('opacity', '0');
+  state.activeId = id;
+  const group = hl.get(id);
+  if (!group) return;
+  for (const rect of group) rect.setAttribute('opacity', '1');
+  const svg = group[0].closest('svg');
+  if (svg && svg !== lastSystem) {
+    lastSystem = svg;
+    const footer = document.querySelector('.controls');
+    const bottom = window.innerHeight - (footer ? footer.offsetHeight : 0) - 8;
+    const box = svg.getBoundingClientRect();
+    if (box.top < 8 || box.bottom > bottom) {
+      const target = window.scrollY + box.top - Math.max(8, (bottom - box.height) / 2);
+      window.scrollTo({top: Math.max(0, target), behavior: 'smooth'});
+    }
+  }
+}
+
+// ---- この範囲の移動 ----
+const shiftArrow = shift => shift.to > shift.from ? '↗' : '↘';
+const noteDetail = n => `${n.string}線${n.finger}指 ${pitchLabel(n.pitch)}`;
+
+function renderShifts() {
+  const {start, end} = state.range;
+  const shifts = shiftsIn(start, end);
+  const list = $('shift-list');
+  list.replaceChildren();
+  // 移動が少ない時は開いておき、多い時は1行に畳んで楽譜を画面に残す（楽譜の札と帯でも分かる）。
+  const box = $('shift-box');
+  box.open = shifts.length > 0 && shifts.length <= 2;
+  box.classList.toggle('empty', !shifts.length);
+  if (!shifts.length) {
+    const first = firstStoppedIn(start, end);
+    const p = document.createElement('p');
+    p.className = 'no-shifts';
+    const hasSound = MEASURES.slice(start - 1, end).some(m => m.notes.length);
+    p.textContent = `移動なし（${first ? `ずっと ${POSITION_NAMES[first.position]}` : hasSound ? '開放弦のみ' : '休符のみ'}）`;
+    list.append(p);
+    $('shift-title').textContent = `この範囲の移動：${p.textContent}`;
+    return;
+  }
+  $('shift-title').textContent = `この範囲の移動 ${shifts.length}か所`;
+  for (const shift of shifts) {
+    const n = shift.note;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'shift-row';
+    row.dataset.shiftNote = n.id;
+    row.textContent = `${n.measure}小節・${n.index + 1}音目 ${pitchLabel(n.pitch)}（${n.string}線${n.finger}指） ${POSITION_NAMES[shift.from]} → ${POSITION_NAMES[shift.to]} ${shiftArrow(shift)}`;
+    row.addEventListener('click', () => {
+      const badge = systemsEl.querySelector(`.shift[data-note-id="${n.id}"]`);
+      badge?.closest('svg').scrollIntoView({block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+    });
+    list.append(row);
+  }
+}
+
+let cueWindows = [];
+let cueIds = new Set();
+let cueTimer = 0;
+
+function prepareShiftCues() {
+  const plan = phraseTimeline(state.range.start, state.range.end, state.tempo);
+  const notes = plan.events.filter(ev => ev.kind === 'note');
+  const shifts = new Map(shiftsIn(state.range.start, state.range.end).map(s => [s.note.id, s]));
+  cueWindows = notes.flatMap((ev, i) => {
+    const shift = shifts.get(ev.note.id);
+    return shift ? [{shift, start: notes[i - 1]?.time ?? ev.time, end: ev.time + ev.duration}] : [];
+  });
+}
+
+function paintShiftBadges() {
+  for (const badge of systemsEl?.querySelectorAll('.shift') || [])
+    badge.classList.toggle('shift-cue-active', cueIds.has(badge.dataset.noteId));
+}
+
+function updateShiftCue(time = null) {
+  clearTimeout(cueTimer);
+  const active = time === null ? [] : cueWindows.filter(w => time >= w.start && time < w.end - .00001);
+  cueIds = new Set(active.map(w => w.shift.note.id));
+  const banner = $('shift-cue');
+  banner.replaceChildren();
+  for (const {shift} of active) {
+    const row = document.createElement('div');
+    row.textContent = `次は移動 ${shiftArrow(shift)}${POSITION_NAMES[shift.to]}（${noteDetail(shift.note)}）`;
+    banner.append(row);
+  }
+  banner.hidden = !active.length;
+  paintShiftBadges();
+  syncControlsSpace();
+  if (active.length) {
+    const end = Math.min(...active.map(w => w.end));
+    cueTimer = setTimeout(() => updateShiftCue(end), (end - time) * 1000);
+  }
+}
+
+// 固定操作盤の折り返しや、移動予告の高さも本文の余白へ反映する。
+function syncControlsSpace() {
+  const height = document.querySelector('.controls').getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--controls-height', `${Math.ceil(height)}px`);
+}
+new ResizeObserver(syncControlsSpace).observe(document.querySelector('.controls'));
+
+// ---- 再生 ----
+const audio = new ViolinAudio(
+  () => {},
+  () => {},
+);
+const wake = {lock: null};
+
+async function keepAwake() {
+  try {
+    if ('wakeLock' in navigator) wake.lock = await navigator.wakeLock.request('screen');
+  } catch {
+    /* 使えない時はそのまま */
+  }
+}
+
+function releaseAwake() {
+  try {
+    wake.lock?.release();
+  } catch {
+    /* 同上 */
+  }
+  wake.lock = null;
+}
+
+const countPatterns = { '1234': ['1','2','3','4'], '1212': ['1','2','1','2'], '121hai': ['1','2','1','ハイ'] };
+let countTotal = 4;
+function hideCount() { $('count-overlay').hidden = true; }
+function showCount(remaining) {
+  const pattern = countTotal === 4 ? countPatterns[state.countPattern]
+    : state.countPattern === '121hai' ? ['1','ハイ'] : ['1','2'];
+  const label = pattern[countTotal - remaining];
+  const overlay = $('count-overlay');
+  overlay.textContent = label;
+  overlay.dataset.beat = String(countTotal - remaining + 1);
+  overlay.dataset.total = String(countTotal);
+  overlay.classList.toggle('last-beat', remaining === 1);
+  overlay.hidden = false;
+  setStatus(`カウント ${label}`);
+}
+const player = new PhrasePlayer(
+  audio,
+  ev => {
+    updateShiftCue(ev.time);
+    const note = ev && ev.note;
+    if (!note || ev.kind === 'rest') {
+      highlight(null);
+      return;
+    }
+    highlight(note.id ?? note.targetId);
+  },
+  (kind, value) => {
+    if (kind === 'loading') { countTotal = 4; hideCount(); setStatus('音を準備しています'); }
+    else if (kind === 'count') { updateShiftCue(); showCount(value); }
+    else if (kind === 'play') { hideCount(); countTotal = 2; setStatus(value === 1 ? '再生中' : `${value}回目`); }
+    else if (kind === 'done') {
+      setStatus('終わり');
+      stop();
+    }
+    else if (kind === 'interrupted') {
+      stop();
+      setStatus('音が止まりました。もう一度「再生」を押してください');
+    }
+  },
+);
+
+function setStatus(text) {
+  $('status').textContent = text;
+}
+
+async function play() {
+  if (state.playing) return;
+  state.playing = true;
+  $('play').textContent = '■ 止める';
+  $('play').classList.add('playing');
+  keepAwake();
+  prepareShiftCues();
+  try {
+    await player.start({
+      start: state.range.start,
+      end: state.range.end,
+      bpm: state.tempo,
+      tuning: Number(state.tuning),
+      volume: Number(state.volume) / 100,
+      repeat: state.repeat === 'inf' ? Infinity : Number(state.repeat),
+      countIn: state.countIn,
+      firstCount: 4,
+    });
+  } catch (error) {
+    stop();
+    setStatus(error && error.message ? error.message : '音を出せませんでした');
+  }
+}
+
+function stop() {
+  player.stop();
+  hideCount();
+  updateShiftCue();
+  state.playing = false;
+  releaseAwake();
+  $('play').textContent = '▶ 再生';
+  $('play').classList.remove('playing');
+  if ($('status').textContent !== '終わり') setStatus('タップで再生');
+  highlight(null);
+}
+
+$('play').addEventListener('click', () => (state.playing ? stop() : play()));
+
+// ---- 帯と小節の選択 ----
+$('prev').addEventListener('click', () => {
+  const r = stepRange(state.range, listFor(), -1);
+  if (!r) return;
+  stop();
+  setRange(r);
+});
+
+$('next').addEventListener('click', () => {
+  const r = stepRange(state.range, listFor(), 1);
+  if (!r) return;
+  stop();
+  setRange(r);
+});
+
+$('back-to-phrase').addEventListener('click', () => {
+  const list = listFor();
+  const {start, end} = state.range;
+  const seg =
+    list.find(s => start >= s.start && end <= s.end) ||
+    list.find(s => start >= s.start && start <= s.end);
+  if (!seg) return;
+  stop();
+  setRange({start: seg.start, end: seg.end});
+});
+
+for (const btn of document.querySelectorAll('.seg-btn')) {
+  btn.addEventListener('click', () => {
+    const unit = Number(btn.dataset.unit) === 2 ? 2 : 4;
+    const wasFirst = state.range.start;
+    state.unit = unit;
+    store.set('unit', unit);
+    for (const b of document.querySelectorAll('.seg-btn')) b.setAttribute('aria-pressed', String(Number(b.dataset.unit) === unit));
+    stop();
+    const list = listFor();
+    const hit = list.findIndex(s => wasFirst >= s.start && wasFirst <= s.end);
+    setRange(hit >= 0 ? list[hit] : list[0]);
+  });
+}
+
+for (const btn of document.querySelectorAll('.seg-btn')) {
+  if (Number(btn.dataset.unit) === state.unit) btn.setAttribute('aria-pressed', 'true');
+  else btn.setAttribute('aria-pressed', 'false');
+}
+
+// 小節を選ぶ
+const pickerOpen = $('picker-open');
+pickerOpen.addEventListener('click', () => {
+  const open = $('picker').hidden;
+  $('picker').hidden = !open;
+  pickerOpen.setAttribute('aria-expanded', String(open));
+});
+
+for (const sel of [$('picker-start'), $('picker-end')]) {
+  for (let i = MIN_MEASURE; i <= MAX_MEASURE; i++) {
+    sel.appendChild(new Option(String(i), String(i)));
+  }
+}
+
+$('picker-start').addEventListener('change', () => {
+  if (Number($('picker-end').value) < Number($('picker-start').value)) $('picker-end').value = $('picker-start').value;
+});
+$('picker-end').addEventListener('change', () => {
+  if (Number($('picker-end').value) < Number($('picker-start').value)) $('picker-start').value = $('picker-end').value;
+});
+
+$('picker-apply').addEventListener('click', () => {
+  const start = Number($('picker-start').value);
+  const end = Number($('picker-end').value);
+  stop();
+  setRange({start: Math.min(start, end), end: Math.max(start, end)});
+});
+
+// 楽譜の小節番号をタップ → その1小節
+$('score').addEventListener('click', event => {
+  const bar = event.target.closest('.bar-number');
+  if (!bar) return;
+  const n = Number(bar.dataset.measure);
+  if (!Number.isInteger(n)) return;
+  stop();
+  setRange({start: n, end: n});
+});
+
+// ---- 操作盤 ----
+$('repeat').addEventListener('change', e => {
+  state.repeat = e.target.value;
+  store.set('repeat', state.repeat);
+  if (state.playing) {
+    stop();
+    play();
+  }
+});
+
+function setTempo(value) {
+  state.tempo = Math.min(180, Math.max(30, value));
+  state.tempoTouched = true;
+  $('tempo-value').textContent = String(state.tempo);
+  store.set('tempo', state.tempo);
+  store.set('tempoTouched', true);
+  if (state.playing) {
+    stop();
+    play();
+  }
+}
+
+$('tempo-down').addEventListener('click', () => setTempo(state.tempo - 4));
+$('tempo-up').addEventListener('click', () => setTempo(state.tempo + 4));
+
+$('countin').addEventListener('change', e => {
+  state.countIn = e.target.checked;
+  store.set('countIn', state.countIn);
+  if (state.playing) {
+    stop();
+    play();
+  }
+});
+
+$('count-pattern').addEventListener('change', e => {
+  state.countPattern = e.target.value;
+  store.set('countPattern', state.countPattern);
+  if (state.playing) { stop(); play(); }
+});
+
+$('volume').addEventListener('input', e => {
+  state.volume = Number(e.target.value);
+  store.set('volume', state.volume);
+});
+
+$('tuning').addEventListener('change', e => {
+  state.tuning = Number(e.target.value);
+  store.set('tuning', state.tuning);
+});
+
+// ---- 前の版へのリンク ----
+$('classic-link').href = location.pathname.includes('/v2/') ? '../' : './classic/';
+
+// ---- 画面 ----
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    lastSystem = null;
+    render();
+  }, 180);
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.playing) stop();
+});
+
+// ---- 開始 ----
+function boot() {
+  $('tempo-value').textContent = String(state.tempo);
+  $('repeat').value = state.repeat;
+  $('countin').checked = state.countIn;
+  $('count-pattern').value = state.countPattern;
+  $('volume').value = String(state.volume);
+  $('tuning').value = String(state.tuning);
+
+  const fromUrl = parseRange(location.search, location.hash);
+  const initial = fromUrl || {start: PHRASES[0].start, end: PHRASES[0].end};
+  setRange(initial, {fromUrl: true});
+  setStatus('タップで再生');
+}
+
+boot();

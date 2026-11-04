@@ -1,20 +1,128 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f4f2e9"><meta name="description" content="モンティのチャルダッシュを、色付き運指とポジションで練習。1音ずつ測定／お手本を聴いて一緒に弾く。"><title>ひと小節ずつ — チャルダッシュ</title><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css"></head>
-<body><header><a class="brand" href="./"><span class="strings-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>ひと小節ずつ</a><button id="settings-open" class="quiet" aria-expanded="false">設定・使い方</button></header>
-<main><div class="heading"><div><p class="eyebrow">VITTORIO MONTI</p><h1>チャルダッシュ</h1></div><p class="scope">Allegro vivaceから最後まで<br>紫の×の部分は省略・上の声部</p></div>
-<div class="mode-tabs" role="group" aria-label="モード"><button id="measure-mode" aria-pressed="true">1音ずつ測定</button><button id="phrase-mode" aria-pressed="false">聴いて、一緒に弾く</button></div>
-<div class="workspace"><section class="score-panel" aria-label="楽譜と運指"><div class="toolbar"><button id="previous" class="arrow" aria-label="前の小節">←</button><button id="picker-open" aria-expanded="false"><b id="measure-title">練習1小節</b><span>⌄</span></button><button id="next" class="arrow" aria-label="次の小節">→</button><span id="section-tag"></span></div>
-<div class="score-meta"><span id="source-place"></span><div class="legend"><b class="g">G 青</b><b class="d">D 橙</b><b class="a">A 赤</b><b class="e">E 緑</b></div></div>
-<div id="score" class="score"></div><div class="score-bottom"><span>数字をタップすると、その音から</span><span id="note-count"></span></div>
-<div class="finger-guide"><div class="guide-heading"><span>指の置き方</span><span id="shape-position"></span></div><p id="instruction"></p><div id="hand-shape"></div><p id="next-note" class="subtle"></p></div></section>
-<aside class="control-panel"><div class="target"><div id="finger-disc">1</div><div><p id="target-string"></p><h2 id="target-note"></h2><p id="target-position"></p></div></div>
-<div id="measurement-controls"><div class="status"><i id="status-dot"></i><p id="status-text" role="status" aria-live="polite">マイクを始めて、この音を弾く</p></div><div class="readout"><strong id="heard-note">—</strong><span id="heard-frequency">入力を待っています</span></div><p class="meter-label">測定した音の高さ</p><div class="pitch-meter"><span class="good-zone"></span><i id="needle" hidden></i></div><div class="pitch-labels"><span>低い</span><b id="pitch-hint">真ん中に合わせる</b><span>高い</span></div><div class="input"><span>入力</span><div><i id="input-level"></i></div><span id="input-state">オフ</span></div><button id="start-mic" class="primary">マイクで測定する</button><button id="reference" class="secondary">この音を聴く</button><div class="minor-actions"><button id="manual-next">次の音へ</button><label><input id="measure-loop" type="checkbox">範囲をくり返す</label></div><p id="measurement-range" class="subtle"></p></div>
-<div id="phrase-controls" hidden><p class="phrase-caption">いま練習するフレーズ</p><h3 id="phrase-title"></h3><p id="phrase-range" class="subtle"></p><div id="steps" class="steps"><span data-phase="listen">1 聴く</span><span data-phase="count">2 構える</span><span data-phase="together">3 一緒に</span></div><div class="practice-state"><span id="countdown"></span><p id="practice-status" role="status" aria-live="polite">まずお手本を1回聴きます。</p></div><label class="tempo-setting">速さ <b><span id="bpm-value">72</span> BPM</b><input id="bpm" type="range" min="30" max="180" step="2" value="72"></label><p class="subtle">4拍のカウント後、同じお手本と一緒に。</p><button id="start-phrase" class="primary">お手本から始める</button><label class="repeat"><input id="phrase-loop" type="checkbox" checked>同じフレーズをくり返す</label><div class="phrase-nav"><button id="previous-phrase" class="quiet">前のフレーズ</button><button id="next-phrase" class="quiet">次のフレーズ</button></div></div>
-<div id="error" class="error" role="alert" hidden></div><div id="completion" class="completion" hidden><h3>この範囲が終わりました</h3><p id="completion-text"></p><button id="restart" class="secondary">はじめから</button></div><p class="privacy">音声はこの端末内で処理します。</p></aside></div>
-<footer><p>提供譜から練習用に再浄書。ポジション・指の間隔は補完した目安です。</p><p><a href="https://ngmt4amtk-web.github.io/kreisler-practice/">クライスラー版</a> · <a href="LICENSES.txt">楽譜記号のライセンス</a></p></footer>
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f5ec">
+<title>チャルダッシュ — 聴いて、一緒に弾く</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="title">
+    <h1>チャルダッシュ</h1>
+    <p class="sub">聴いて、一緒に弾く</p>
+  </div>
+  <a id="classic-link" class="quiet-link" href="../">前の版（1音ずつ測る）</a>
+</header>
+
+<main>
+  <section class="phrase-bar" aria-label="練習する範囲">
+    <button id="prev" class="arrow" type="button">← 前</button>
+    <div class="phrase-label">
+      <p id="range-title" class="range-title">フレーズ 1 / 24</p>
+      <p id="range-sub" class="range-sub">1〜4小節</p>
+    </div>
+    <button id="next" class="arrow primary" type="button">次へ →</button>
+  </section>
+
+  <div class="range-tools">
+    <button id="picker-open" class="chip" type="button" aria-expanded="false" aria-controls="picker">小節を選ぶ</button>
+    <div class="seg" role="group" aria-label="区切り">
+      <button type="button" class="seg-btn" data-unit="4" aria-pressed="true">4小節</button>
+      <button type="button" class="seg-btn" data-unit="2" aria-pressed="false">2小節</button>
+    </div>
+    <button id="back-to-phrase" class="chip" type="button" hidden>フレーズに戻す</button>
+  </div>
+
+  <div id="picker" class="picker" hidden>
+    <label>はじめ
+      <select id="picker-start"></select>
+    </label>
+    <label>おわり
+      <select id="picker-end"></select>
+    </label>
+    <button id="picker-apply" class="chip go" type="button">この範囲にする</button>
+  </div>
+
+  <details class="range-shifts" id="shift-box">
+    <summary id="shift-title">この範囲の移動</summary>
+    <div id="shift-list"></div>
+  </details>
+
+  <section id="score" class="score" aria-label="楽譜"></section>
+  <div id="count-overlay" class="count-overlay" role="status" aria-live="assertive" hidden></div>
+
+  <details class="legend">
+    <summary>印の読み方</summary>
+    <dl>
+      <div><dt><span class="sw" style="background:#285dcc"></span>G線</dt><dd>青</dd></div>
+      <div><dt><span class="sw" style="background:#ba6613"></span>D線</dt><dd>橙</dd></div>
+      <div><dt><span class="sw" style="background:#c63840"></span>A線</dt><dd>赤</dd></div>
+      <div><dt><span class="sw" style="background:#217544"></span>E線</dt><dd>緑</dd></div>
+      <div><dt>1 2 3 4</dt><dd>押さえる指。0 は開放弦。</dd></div>
+      <div><dt>1st・2nd・3rd</dt><dd>左手のポジション。ポジション名は各段の最初と移動の所だけに書きます。</dd></div>
+      <div><dt><span class="shift-sample">↗3rd</span></dt><dd>黒い札・太い縦線・黄色の帯が手の位置を変える音。札の字が移った先で、↗は上がる移動、↘は下がる移動です。</dd></div>
+      <div><dt>↑</dt><dd>その指を半音高めに置く（高い2 など）。</dd></div>
+      <div><dt>↓</dt><dd>その指を半音低めに置く（低い1・低い2 など）。</dd></div>
+      <div><dt>◇</dt><dd>ハーモニクス。指を軽く触れて鳴らす音。</dd></div>
+    </dl>
+  </details>
 </main>
-<dialog id="picker"><div class="dialog-heading"><h2>練習するところ</h2><button class="quiet" id="picker-close">閉じる ×</button></div><p class="subtle">小節番号は、このアプリの開始地点を1としています。</p><label class="field">場面<select id="section-select"></select></label><div id="phrases" class="phrase-list"></div><details id="bar-details"><summary>1小節ずつ選ぶ・範囲を変える</summary><div id="measure-grid" class="measure-grid"></div><div class="range"><label>開始<select id="range-start"></select></label><label>終了<select id="range-end"></select></label><button id="apply-range" class="primary">この範囲</button></div><p id="range-error" class="error" role="alert"></p></details></dialog>
-<dialog id="settings"><div class="dialog-heading"><h2>設定・使い方</h2><button class="quiet" id="settings-close">閉じる ×</button></div><div class="settings-grid"><label>基準のラ<select id="tuning"><option value="440">A = 440 Hz</option><option value="441">A = 441 Hz</option><option value="442">A = 442 Hz</option><option value="443">A = 443 Hz</option></select></label><label>音程の許容幅<select id="tolerance"><option value="25">細かく ±25セント</option><option value="40">標準 ±40セント</option><option value="60">ゆったり ±60セント</option></select></label><label>マイクの感度<select id="sensitivity"><option value="normal">標準</option><option value="quiet">小さな音を拾う</option></select></label><label>お手本の音量<input type="range" id="volume" min="0.2" max="1" step="0.05"></label><label class="wide"><input type="checkbox" id="auto-reference">違う音が続いたら、この音のお手本を鳴らす</label></div><p id="microphone-details" class="subtle"></p>
-<details open><summary>指番号と矢印の読み方</summary><p>G線は青、D線はオレンジ、A線は赤、E線は緑。数字は指、0は開放弦です。I・II・III・IVは第1・第2・第3・第4ポジションです。</p><p>↑は高め、↓は低めに置く目安。第1ポジションの2指は、高い2／低い2を示します。それ以外のポジションでは、同じ音名の自然音からの半音の変化を矢印で示します。指の配置図は、近くの音から補った並びです。線の上の間隔は半音の数を表し、手の実寸ではありません。</p><p>指の置き方の目安と、マイクで測った「高い・低い」は別の表示です。半音の隣の指は寄せる目安とし、無理に力でくっつけません。高いポジションほど実際の指の間隔は狭くなります。</p></details>
-<details><summary>譜面の範囲・補完したところ</summary><p>1ページ下のAllegro vivaceから最後までの97小節。2ページ下の紫の×の人工ハーモニクス部分は飛ばし、重音・和音は上の声部を収録しています。Molto menoの単音の自然ハーモニクス2音は残しています。</p><p>色付きの書き込みを優先し、書き込みのない反復は同じ音型から補っています。ポジションは弦・音高・指番号から置いた練習用の案です。同じ指番号でも、指を伸ばすか手を移すかで別の弾き方があり得ます。</p><p>特に練習21・22小節（再現の53・54小節）のA線「ド♯1・ミ3・ソ4」は、書き込みどおりの指を残し、第2→第3→第2ポジションと補っています。ここは4指を伸ばす別案もあるため、原譜にないポジションを確定指定として扱っていません。</p><p>五線・音価・休符・臨時記号・タイ・装飾音を再浄書しています。読みやすさのため、音の多い小節は上下2段に分けます。原譜の強弱・弓順・スラーの一部は省略した練習譜です。装飾音は測定では1音ずつ、練習では直後の音の時間を少し借りて鳴らします。</p></details>
-<details><summary>2つのモード</summary><p>測定では、指定の音が許容幅に入り、短く安定すると次へ進みます。同じ音が続く場合は、一度音を止めて弾き直します。100セントが半音です。</p><p>練習では「お手本 → 4拍カウント → 同じお手本と一緒に弾く」。テンポは四分音符を1拍としたBPMです。お手本の再生中はマイクで採点しません。録音や演奏の保存はしません。</p><p>基準音から等間隔に分けた平均律のお手本です。音程の表情付けや、和音に合わせた微調整を一意に決めるものではありません。リズム・弓順・指・弦そのものはマイクで判定しません。</p><p>画面を閉じたり、別アプリへ移ると停止します。マイクはHTTPSまたはlocalhostで使えます。</p></details></dialog>
-<script type="module" src="app.js"></script></body></html>
+
+<footer class="controls">
+  <div class="inner">
+    <div id="shift-cue" class="shift-cue" role="status" aria-live="polite" hidden></div>
+    <div class="row main-row">
+      <button id="play" class="play" type="button">▶ 再生</button>
+      <div class="field tempo-field">テンポ
+        <div class="stepper">
+          <button id="tempo-down" type="button" aria-label="テンポを下げる">−</button>
+          <output id="tempo-value">72</output>
+          <button id="tempo-up" type="button" aria-label="テンポを上げる">＋</button>
+        </div>
+      </div>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite">タップで再生</p>
+    <details class="more" id="more">
+    <summary>くり返し・カウント・音量</summary>
+    <div class="row">
+      <label class="field">くり返し
+        <select id="repeat">
+          <option value="inf">ずっと</option>
+          <option value="1">1回</option>
+          <option value="3">3回</option>
+          <option value="5">5回</option>
+        </select>
+      </label>
+      <label class="field">カウント
+        <select id="count-pattern">
+          <option value="1234">1・2・3・4</option>
+          <option value="1212">1・2・1・2</option>
+          <option value="121hai">1・2・1・ハイ</option>
+        </select>
+      </label>
+      <label class="field toggle">間にカウント
+        <input id="countin" type="checkbox" checked>
+      </label>
+      <label class="field">音量
+        <input id="volume" type="range" min="0" max="100" value="60">
+      </label>
+      <label class="field">調弦 A=
+        <select id="tuning">
+          <option value="440">440</option>
+          <option value="441">441</option>
+          <option value="442" selected>442</option>
+          <option value="443">443</option>
+        </select>
+      </label>
+    </div>
+    </details>
+  </div>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

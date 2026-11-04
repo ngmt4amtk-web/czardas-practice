@@ -3,6 +3,8 @@ export class ViolinAudio {
   constructor(onReading,onEnded){this.onReading=onReading;this.onEnded=onEnded;this.token=0;this.noise=.00015;this.tones=[];this.sensitivity='normal';}
   async context(){
     if(!this.ctx||this.ctx.state==='closed'){
+      // iPhone の消音スイッチが入っていても鳴るように、種類を playback にする。
+      if(navigator.audioSession)navigator.audioSession.type='playback';
       const AudioContext=window.AudioContext||window.webkitAudioContext;
       if(!AudioContext)throw new Error('このブラウザでは音声を使えません。Safari または Chrome で開いてください。');
       this.ctx=new AudioContext({latencyHint:'interactive'});
