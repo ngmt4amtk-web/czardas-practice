@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f5ec">
+<title>チャルダッシュ — 聴いて、一緒に弾く</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="title">
+    <h1>チャルダッシュ</h1>
+    <p class="sub">聴いて、一緒に弾く</p>
+  </div>
+  <a id="classic-link" class="quiet-link" href="../">前の版（1音ずつ測る）</a>
+</header>
+
+<main>
+  <section class="phrase-bar" aria-label="練習する範囲">
+    <button id="prev" class="arrow" type="button">← 前</button>
+    <div class="phrase-label">
+      <p id="range-title" class="range-title">フレーズ 1 / 24</p>
+      <p id="range-sub" class="range-sub">1〜4小節</p>
+    </div>
+    <button id="next" class="arrow primary" type="button">次へ →</button>
+  </section>
+
+  <div class="range-tools">
+    <button id="picker-open" class="chip" type="button" aria-expanded="false" aria-controls="picker">小節を選ぶ</button>
+    <div class="seg" role="group" aria-label="区切り">
+      <button type="button" class="seg-btn" data-unit="4" aria-pressed="true">4小節</button>
+      <button type="button" class="seg-btn" data-unit="2" aria-pressed="false">2小節</button>
+    </div>
+    <button id="back-to-phrase" class="chip" type="button" hidden>フレーズに戻す</button>
+  </div>
+
+  <div id="picker" class="picker" hidden>
+    <label>はじめ
+      <select id="picker-start"></select>
+    </label>
+    <label>おわり
+      <select id="picker-end"></select>
+    </label>
+    <button id="picker-apply" class="chip go" type="button">この範囲にする</button>
+  </div>
+
+  <details class="range-shifts" id="shift-box">
+    <summary id="shift-title">この範囲の移動</summary>
+    <div id="shift-list"></div>
+  </details>
+
+  <section id="score" class="score" aria-label="楽譜"></section>
+  <div id="count-overlay" class="count-overlay" role="status" aria-live="assertive" hidden></div>
+
+  <details class="legend">
+    <summary>印の読み方</summary>
+    <dl>
+      <div><dt><span class="sw" style="background:#285dcc"></span>G線</dt><dd>青</dd></div>
+      <div><dt><span class="sw" style="background:#ba6613"></span>D線</dt><dd>橙</dd></div>
+      <div><dt><span class="sw" style="background:#c63840"></span>A線</dt><dd>赤</dd></div>
+      <div><dt><span class="sw" style="background:#217544"></span>E線</dt><dd>緑</dd></div>
+      <div><dt>1 2 3 4</dt><dd>押さえる指。0 は開放弦。</dd></div>
+      <div><dt>1st・2nd・3rd</dt><dd>左手のポジション。ポジション名は各段の最初と移動の所だけに書きます。</dd></div>
+      <div><dt><span class="shift-sample">↗3rd</span></dt><dd>黒い札・太い縦線・黄色の帯が手の位置を変える音。札の字が移った先で、↗は上がる移動、↘は下がる移動です。</dd></div>
+      <div><dt>↑</dt><dd>その指を半音高めに置く（高い2 など）。</dd></div>
+      <div><dt>↓</dt><dd>その指を半音低めに置く（低い1・低い2 など）。</dd></div>
+      <div><dt>◇</dt><dd>ハーモニクス。指を軽く触れて鳴らす音。</dd></div>
+    </dl>
+  </details>
+</main>
+
+<footer class="controls">
+  <div class="inner">
+    <div id="shift-cue" class="shift-cue" role="status" aria-live="polite" hidden></div>
+    <div class="row main-row">
+      <button id="play" class="play" type="button">▶ 再生</button>
+      <div class="field tempo-field">テンポ
+        <div class="stepper">
+          <button id="tempo-down" type="button" aria-label="テンポを下げる">−</button>
+          <output id="tempo-value">72</output>
+          <button id="tempo-up" type="button" aria-label="テンポを上げる">＋</button>
+        </div>
+      </div>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite">タップで再生</p>
+    <details class="more" id="more">
+    <summary>くり返し・カウント・音量</summary>
+    <div class="row">
+      <label class="field">くり返し
+        <select id="repeat">
+          <option value="inf">ずっと</option>
+          <option value="1">1回</option>
+          <option value="3">3回</option>
+          <option value="5">5回</option>
+        </select>
+      </label>
+      <label class="field">カウント
+        <select id="count-pattern">
+          <option value="1234">1・2・3・4</option>
+          <option value="1212">1・2・1・2</option>
+          <option value="121hai">1・2・1・ハイ</option>
+        </select>
+      </label>
+      <label class="field toggle">間にカウント
+        <input id="countin" type="checkbox" checked>
+      </label>
+      <label class="field">音量
+        <input id="volume" type="range" min="0" max="100" value="60">
+      </label>
+      <label class="field">調弦 A=
+        <select id="tuning">
+          <option value="440">440</option>
+          <option value="441">441</option>
+          <option value="442" selected>442</option>
+          <option value="443">443</option>
+        </select>
+      </label>
+    </div>
+    </details>
+  </div>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
