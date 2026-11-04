@@ -12,6 +12,21 @@ export class ViolinAudio {
     }
     await this.ctx.resume();return this.ctx;
   }
+  // 消音スイッチ対策の2つめ（audioSession の無い古い iPhone 用）。音の無い <audio> を流している間は、
+  // Safari が Web Audio をスイッチに関係なく鳴らす。再生ボタンを押した時（指で触った直後）に呼ぶ。
+  hold(){
+    if(typeof navigator!=='undefined'&&navigator.audioSession){navigator.audioSession.type='playback';return;}
+    if(typeof document==='undefined'||typeof Audio==='undefined')return;
+    if(!this.keeper){
+      const rate=8000,n=rate/2,buf=new ArrayBuffer(44+n*2),v=new DataView(buf),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i));};
+      w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+      v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
+      this.keeper=new Audio(URL.createObjectURL(new Blob([buf],{type:'audio/wav'})));
+      this.keeper.loop=true;this.keeper.setAttribute('playsinline','');this.keeper.setAttribute('x-webkit-airplay','deny');
+    }
+    try{const p=this.keeper.play();if(p&&p.catch)p.catch(()=>{});}catch{}
+  }
+  release(){try{this.keeper?.pause();}catch{}}
   get threshold(){return Math.max(this.sensitivity==='quiet'?.00018:.0004,Math.min(this.sensitivity==='quiet'?.002:.004,this.noise*(this.sensitivity==='quiet'?1.8:2.5)));}
   async start(){
     const token=++this.token,ctx=await this.context();

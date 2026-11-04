@@ -10,7 +10,9 @@ export const positionName=n=>n.finger===0?'開放':POSITION_NAMES[n.position];
 // 高め・低め: placement() の印（例 2↓＝低い2、3↑＝高い3）。その指を、ポジションの基本の並びより半音高く・低く置く。
 const MARKS=new Map();
 let previous=null;
+// 装飾音は楽譜にも音にも出さないので、移動も数えない（本人 2026-11-05「装飾音いらない」）。
 for(const n of NOTES){
+ if(n.grace)continue;
  const stopped=n.finger!==0;
  const mark={
   position:positionName(n),
@@ -32,13 +34,17 @@ export const markFor=n=>MARKS.get(n.id);
 
 // 範囲の最初に押さえる音（表示の始まりで手の位置を示すため）。
 export function firstStoppedIn(start,end){
- for(const m of MEASURES.slice(start-1,end))for(const n of m.notes)if(n.finger!==0)return n;
+ for(const m of MEASURES.slice(start-1,end))for(const n of m.notes)if(!n.grace&&n.finger!==0)return n;
  return null;
 }
 
 // 範囲の中の移動の一覧（小節の順）。
 export function shiftsIn(start,end){
  const out=[];
- for(const m of MEASURES.slice(start-1,end))for(const n of m.notes){const k=MARKS.get(n.id);if(k.shiftTo&&k.shiftFrom)out.push({note:n,from:k.shiftFrom,to:k.shiftTo});}
+ for(const m of MEASURES.slice(start-1,end))for(const n of m.notes){const k=MARKS.get(n.id);if(k&&k.shiftTo&&k.shiftFrom)out.push({note:n,from:k.shiftFrom,to:k.shiftTo});}
  return out;
 }
+
+// フレーズの題。装飾音を描かなくなったので、「装飾音」を名に含む2つだけ言い換える（本人 2026-11-05「装飾音いらない」）。
+const TITLE_FIX={'装飾音から':'細かい音の入り','装飾音の再現':'細かい音の入りの再現'};
+export const phraseTitle=p=>TITLE_FIX[p.title]||p.title;

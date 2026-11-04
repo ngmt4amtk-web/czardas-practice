@@ -1,6 +1,6 @@
 import {PHRASES, SECTIONS, MEASURES, pitchLabel} from './score.mjs';
 import {engraveSystems} from './system.mjs';
-import {shiftsIn, firstStoppedIn, POSITION_NAMES} from './marks.mjs';
+import {shiftsIn, firstStoppedIn, POSITION_NAMES, phraseTitle} from './marks.mjs';
 import {PhrasePlayer, phraseTimeline} from './playback.mjs';
 import {ViolinAudio} from './audio.mjs';
 import {parseRange, segments, phraseFor, stepRange, splitPhrase, MIN_MEASURE, MAX_MEASURE} from './route.mjs';
@@ -34,7 +34,8 @@ const state = {
   repeat: store.get('repeat', 'inf'),
   countIn: store.get('countIn', true),
   countPattern: ['1234', '1212', '121hai'].includes(store.get('countPattern', '1234')) ? store.get('countPattern', '1234') : '1234',
-  volume: store.get('volume', 60),
+  // 音量は 100＝最大（前の版の既定のおよそ3.7倍）。前の版の保存値（既定60）は引き継がない（本人 2026-11-05「音量大きく」）。
+  volume: Math.min(100, Math.max(10, Number(store.get('volume2', 100)) || 100)),
   tuning: store.get('tuning', 442),
   activeId: null,
   playing: false,
@@ -49,7 +50,7 @@ function titleFor(seg) {
   if (!phrase) return '';
   const parts = state.unit === 2 ? splitPhrase(phrase, 2) : [phrase];
   const which = parts.length > 1 ? (parts[0].start === seg.start ? ' 前半' : ' 後半') : '';
-  return phrase.title + which;
+  return phraseTitle(phrase) + which;
 }
 
 function sectionTempo(start) {
@@ -476,7 +477,9 @@ $('count-pattern').addEventListener('change', e => {
 
 $('volume').addEventListener('input', e => {
   state.volume = Number(e.target.value);
-  store.set('volume', state.volume);
+  store.set('volume2', state.volume);
+  $('volume-value').textContent = String(state.volume);
+  player.setVolume(state.volume / 100);
 });
 
 $('tuning').addEventListener('change', e => {
@@ -485,7 +488,7 @@ $('tuning').addEventListener('change', e => {
 });
 
 // ---- 前の版へのリンク ----
-$('classic-link').href = location.pathname.includes('/v2/') ? '../' : './classic/';
+$('classic-link').href = location.pathname.includes('/v2/') ? '../classic/' : './classic/';
 
 // ---- 画面 ----
 let resizeTimer = 0;
@@ -508,6 +511,7 @@ function boot() {
   $('countin').checked = state.countIn;
   $('count-pattern').value = state.countPattern;
   $('volume').value = String(state.volume);
+  $('volume-value').textContent = String(state.volume);
   $('tuning').value = String(state.tuning);
 
   const fromUrl = parseRange(location.search, location.hash);
