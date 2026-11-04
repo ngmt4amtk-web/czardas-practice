@@ -34,7 +34,10 @@ for (const m of MEASURES) {
   for (const e of m.events) if (!e.rest) accidentals.set(e, accidental(e.pitch,m.key,state));
 }
 const accidentalSpace = e => accidentals.get(e) ? .7 : 0;
-const eventWeight = e => (e.grace ? 1.05 : 1 + .6 * e.beats) + (isShift(e) ? .55 : 0) + accidentalSpace(e);
+const shiftLeft = e => accidentals.get(e) ? 16 : 0;
+// 音名の字が長い音（ファ♯・シ♭など）は、隣の音名とくっつかないよう少し幅を足す。
+const labelSpace = e => e.rest ? 0 : .21 * Math.max(0, pitchLabel(e.pitch).length - 1);
+const eventWeight = e => (e.grace ? 1.05 : 1 + .6 * e.beats) + (isShift(e) ? .55 : 0) + accidentalSpace(e) + labelSpace(e);
 
 const r2 = v => {
   if (!Number.isFinite(v)) throw new Error('座標が数になりません: ' + v);
@@ -65,11 +68,13 @@ function accidental(pitch, key, state) {
 
 const measureWeight = m => {
   let w = 0;
-  for (const e of m.events) w += eventWeight(e);
+  for (const e of m.events) if (!e.grace) w += eventWeight(e);
   return w;
 };
 
 // 幅から段の分け方を決める。小節の途中では切らない。調が変わる所は段を改める。
+// 段の数は詰めて入れた時と同じにし、その数の中で各段の量がそろうように分ける
+// （最後の段に1小節だけ残って横に間延びしないように。本人 2026-11-05「広すぎて逆に見にくい」）。
 function packSystems(start, end, width, maxMeasures, noteSpacing) {
   const fits = arr => {
     if (arr.length > maxMeasures) return false;
@@ -79,26 +84,54 @@ function packSystems(start, end, width, maxMeasures, noteSpacing) {
     for (const m of arr) w += measureWeight(m);
     return w * noteSpacing <= avail;
   };
-  const systems = [];
-  let cur = [];
+  const runs = [];
   for (let i = start; i <= end; i++) {
     const m = MEASURES[i - 1];
-    if (cur.length && m.key !== cur.at(-1).key) {
-      systems.push(cur);
-      cur = [];
-    }
-    if (!cur.length) {
-      cur = [m];
-      continue;
-    }
-    if (fits([...cur, m])) cur.push(m);
-    else {
-      systems.push(cur);
-      cur = [m];
-    }
+    if (!runs.length || m.key !== runs.at(-1).at(-1).key) runs.push([]);
+    runs.at(-1).push(m);
   }
-  if (cur.length) systems.push(cur);
+  const systems = [];
+  for (const run of runs) {
+    let count = 0, cur = [];
+    for (const m of run) {
+      if (cur.length && fits([...cur, m])) cur.push(m);
+      else { if (cur.length) count++; cur = [m]; }
+    }
+    if (cur.length) count++;
+    // 1小節だけで幅を超える時は、その小節だけの段にする（詰めて入れる時と同じ扱い）。
+    systems.push(...balance(run, count, arr => arr.length === 1 || fits(arr)));
+  }
   return systems;
+}
+
+// run を count 段に分ける。各段の小節の数がなるべくそろう分け方（4小節なら2＋2）を選び、
+// 同じなら、いちばん重い段の量が小さい方にする（入らない段は作らない）。
+function balance(run, count, fits) {
+  const n = run.length, wt = run.map(measureWeight);
+  const sum = (i, j) => wt.slice(i, j).reduce((a, b) => a + b, 0);
+  const memo = new Map();
+  const best = (i, k) => {
+    const key = i + ',' + k;
+    if (memo.has(key)) return memo.get(key);
+    let out = null;
+    if (k === 1) out = fits(run.slice(i)) ? {cost: sum(i, n), lo: n - i, hi: n - i, cuts: [n]} : null;
+    else for (let j = i + 1; j <= n - (k - 1); j++) {
+      if (!fits(run.slice(i, j))) break;
+      const rest = best(j, k - 1);
+      if (!rest) continue;
+      const cand = {cost: Math.max(sum(i, j), rest.cost), lo: Math.min(j - i, rest.lo), hi: Math.max(j - i, rest.hi), cuts: [j, ...rest.cuts]};
+      const spread = c => c.hi - c.lo;
+      if (!out || spread(cand) < spread(out) || (spread(cand) === spread(out) && cand.cost < out.cost - 1e-9)) out = cand;
+    }
+    memo.set(key, out);
+    return out;
+  };
+  const plan = best(0, count);
+  if (!plan) throw new Error('段の分け方が見つかりません');
+  const out = [];
+  let i = 0;
+  for (const j of plan.cuts) { out.push(run.slice(i, j)); i = j; }
+  return out;
 }
 
 function beamGroupsFor(cells) {
@@ -143,11 +176,11 @@ function renderSystem(measures, cfg) {
   const hasTime = first.number === 1;
   const headW = HEAD + (hasTime ? TIME_W : 0);
   const x0 = headW + LEAD;
-  const rightX = width - RIGHT_PAD;
-
   // ---- 横の割り付け（音価と臨時記号の手前の幅を含む） ----
   const weights = measures.map(measureWeight);
   const totalWeight = weights.reduce((a, b) => a + b, 0);
+  // 音の少ない段は横いっぱいに引き伸ばさず、詰めた幅の1.5倍までにして左に寄せる。
+  const rightX = Math.min(width - RIGHT_PAD, x0 + totalWeight * cfg.noteSpacing * 1.5);
   const musicW = Math.max(60, rightX - x0);
   const unit = musicW / totalWeight;
 
@@ -158,6 +191,7 @@ function renderSystem(measures, cfg) {
     const cells = [];
     let localBeat = 0;
     for (const e of m.events) {
+      if (e.grace) continue; // 装飾音は描かない・鳴らさない（本人 2026-11-05「装飾音いらない」）
       const w = eventWeight(e);
       cells.push({e, x: x0 + (cursor + (w + accidentalSpace(e)) / 2) * unit, w: w * unit, beat: localBeat, measure: m.number});
       cursor += w;
@@ -192,7 +226,6 @@ function renderSystem(measures, cfg) {
         const scale = e.grace ? 8.4 : 12;
         include(stemY - (down ? 3.13 * scale : .1 * scale), stemY + (down ? .2 * scale : 3.21 * scale));
       }
-      if (e.staccato) include(c.y - 19);
       if (e.harmonic) include(c.y - 31); // ○の文字の上端
       if (e.tie) {
         const previous = flatCells.slice(0, flatCells.indexOf(c)).reverse().find(p => !p.e.rest);
@@ -203,7 +236,7 @@ function renderSystem(measures, cfg) {
       const p = b.cells.find(c => c.e.eventIndex === a);
       const q = b.cells.find(c => c.e.eventIndex === z);
       if (p && q && !p.e.rest && !q.e.rest)
-        include(Math.min(p.y - (p.e.staccato ? 29 : 17), q.y - (q.e.staccato ? 29 : 17)) - 23);
+        include(Math.min(p.y - 17, q.y - 17) - 23);
     }
     const graces = b.cells.filter(c => c.e.grace && !c.e.rest);
     if (graces.length) include(Math.max(...graces.map(c => c.y)) + 30);
@@ -251,7 +284,6 @@ function renderSystem(measures, cfg) {
         const s = e.grace ? 8.4 : 12;
         box(sx-1,sx+13,sy-(down?3.13*s:.1*s));
       }
-      if (e.staccato) box(c.x-2,c.x+2,c.y-19);
       if (e.harmonic) box(c.x-8,c.x+8,c.y-31);
       if (c.fermataY !== undefined) box(c.x-14,c.x+14,c.fermataY-12);
     }
@@ -264,7 +296,7 @@ function renderSystem(measures, cfg) {
       const p=b.cells.find(c=>c.e.eventIndex===a), q=b.cells.find(c=>c.e.eventIndex===z);
       if (!p || !q || p.e.rest || q.e.rest) continue;
       const x0=p.x+(p.e.harmonic?14:0), x1=q.x-(q.e.harmonic?14:0);
-      const y0=p.y-(p.e.staccato?29:17), y1=q.y-(q.e.staccato?29:17);
+      const y0=p.y-17, y1=q.y-17;
       curve(x0,y0,(x0+x1)/2,Math.min(y0,y1)-22,x1,y1);
     }
   }
@@ -318,16 +350,18 @@ function renderSystem(measures, cfg) {
   for (const b of bounds) for (const c of b.cells) if (c.fermataY !== undefined) c.fermataY += staffTop;
   const pitchY = staffTop + bottom + MUSIC_GAP + labelSize * 1.2;
   const labelOn = showLabels !== false;
-  const stringY = labelOn ? pitchY + labelSize * 1.5 + 2 : pitchY;
-  const height = stringY + labelSize*.3 + 8;
+  // 弦の名前は書かない（指の数字の色で分かる。本人 2026-11-05）。
+  const height = pitchY + labelSize*.3 + 8;
 
   // ---- 書き出し ----
   let out = `<svg class="system" viewBox="0 0 ${width} ${r2(height)}" role="group" aria-label="第${first.number}〜${last.number}小節" font-family="${FONT}" preserveAspectRatio="xMidYMin meet">`;
 
   // 移動する音の黄色い帯は、現在音の強調より下に置く。
   out += '<g class="shift-bands">';
-  for (const c of flatCells) if (isShift(c.e))
-    out += `<rect class="shift-band" data-shift-band="${esc(c.e.id)}" x="${r2(c.x - 20)}" y="${r2(c.badgeTop)}" width="40" height="${r2(staffBottom + 8 - c.badgeTop)}" rx="8" fill="#fff1b8"/>`;
+  for (const c of flatCells) if (isShift(c.e)) {
+    const left = shiftLeft(c.e);
+    out += `<rect class="shift-band" data-shift-band="${esc(c.e.id)}" x="${r2(c.x - 20 - left)}" y="${r2(c.badgeTop)}" width="${40 + left}" height="${r2(staffBottom + 8 - c.badgeTop)}" rx="8" fill="#fff1b8"/>`;
+  }
   out += '</g>';
 
   // 再生中の音の背景（薄い弦の色）
@@ -396,9 +430,11 @@ function renderSystem(measures, cfg) {
       if (isShift(e)) {
         const name = `${mk.shiftTo > mk.shiftFrom ? '↗' : '↘'}${POSITION_NAMES[mk.shiftTo]}`;
         body += `<g class="shift" data-note-id="${esc(id)}">`;
-        body += line(x - 15, c.badgeTop + BADGE_HEIGHT, x - 15, staffBottom+8, 'class="shift-line" stroke="#1f2a24" stroke-width="3"');
-        body += `<rect class="shift-badge" x="${r2(x - 19)}" y="${r2(c.badgeTop)}" width="38" height="${BADGE_HEIGHT}" rx="5" fill="#1f2a24"/>`;
-        body += text(x, c.badgeTop + 16, name, 'class="position-label" text-anchor="middle" font-size="11.5" font-weight="800" fill="white"');
+        // 臨時記号のある音は、縦線を記号より左へ出し、札もその分だけ左へ伸ばす（線が♯に重ならない）。
+        const left = shiftLeft(e);
+        body += line(x - 15 - left, c.badgeTop + BADGE_HEIGHT, x - 15 - left, staffBottom+8, 'class="shift-line" stroke="#1f2a24" stroke-width="3"');
+        body += `<rect class="shift-badge" x="${r2(x - 19 - left)}" y="${r2(c.badgeTop)}" width="${38 + left}" height="${BADGE_HEIGHT}" rx="5" fill="#1f2a24"/>`;
+        body += text(x - left / 2, c.badgeTop + 16, name, 'class="position-label" text-anchor="middle" font-size="11.5" font-weight="800" fill="white"');
         body += '</g>';
       } else if (c === firstStopped) {
         body += `<g class="system-position" data-position="${e.position}"><rect x="${r2(x - 15)}" y="${r2(c.badgeTop)}" width="30" height="19" rx="4" fill="none" stroke="#1f2a24"/>`;
@@ -430,12 +466,10 @@ function renderSystem(measures, cfg) {
       body += line(stemX, c.y, stemX, stemY, `stroke="${color}" stroke-width="2"`);
       if (e.beats === 0.75 || e.beats === 1.5) body += `<circle cx="${r2(x + 13)}" cy="${r2(c.y - 3)}" r="2.1" fill="${color}"/>`;
       if (e.harmonic) body += text(x, c.y - 16, '○', `class="harmonic-symbol" text-anchor="middle" font-size="13" fill="${color}"`);
-      if (e.staccato) body += `<circle class="staccato" cx="${r2(x)}" cy="${r2(c.y - 17)}" r="2" fill="${color}"/>`;
       if (e.grace) body += line(stemX - 4, stemY + 12, stemX + 8, stemY + 3, `stroke="${color}" stroke-width="1.2"`);
 
       // 五線の下: 音名と弦の名
       if (labelOn) body += text(x, pitchY, pitchLabel(e.pitch), `class="pitch-label" text-anchor="middle" font-size="${labelSize}" fill="#3d4a40"`);
-      body += text(x, stringY, s.name, `class="string-label" text-anchor="middle" font-size="${labelSize}" fill="${color}"`);
 
       if (e.tie) ties.push(c);
       body += '</g>';
@@ -476,8 +510,8 @@ function renderSystem(measures, cfg) {
       if (!p || !q || p.e.rest || q.e.rest) continue;
       const startX = p.x + (p.e.harmonic ? 14 : 0);
       const endX = q.x - (q.e.harmonic ? 14 : 0);
-      const startY = p.y - (p.e.staccato ? 29 : 17);
-      const endY = q.y - (q.e.staccato ? 29 : 17);
+      const startY = p.y - 17;
+      const endY = q.y - 17;
       const archY = Math.min(startY, endY) - 22;
       body += `<path class="slur" d="M${r2(startX)} ${r2(startY)}Q${r2((startX + endX) / 2)} ${r2(archY)} ${r2(endX)} ${r2(endY)}" fill="none" stroke="#526556" stroke-width="1.3"/>`;
     }
@@ -553,6 +587,6 @@ export function engraveSystems(start, end, options = {}) {
     throw new RangeError('表示する小節の範囲が正しくありません。');
   const w = Math.max(240, Math.round(width) || 360);
   const systems = packSystems(start, end, w, maxMeasures, noteSpacing);
-  const cfg = {width: w, activeId, showLabels, rangeStart: start, rangeEnd: end, barNumbers, fingerScale, labelSize};
+  const cfg = {width: w, activeId, showLabels, rangeStart: start, rangeEnd: end, barNumbers, fingerScale, labelSize, noteSpacing};
   return systems.map(ms => renderSystem(ms, cfg));
 }

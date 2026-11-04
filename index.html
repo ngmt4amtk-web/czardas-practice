@@ -85,9 +85,15 @@
         </div>
       </div>
     </div>
-    <p class="status" id="status" role="status" aria-live="polite">タップで再生</p>
+    <div class="status-row">
+      <p class="status" id="status" role="status" aria-live="polite">タップで再生</p>
+      <label class="volume-field">音量
+        <input id="volume" type="range" min="10" max="100" step="5" value="100">
+        <output id="volume-value">100</output>
+      </label>
+    </div>
     <details class="more" id="more">
-    <summary>くり返し・カウント・音量</summary>
+    <summary>くり返し・カウント・調弦</summary>
     <div class="row">
       <label class="field">くり返し
         <select id="repeat">
@@ -106,9 +112,6 @@
       </label>
       <label class="field toggle">間にカウント
         <input id="countin" type="checkbox" checked>
-      </label>
-      <label class="field">音量
-        <input id="volume" type="range" min="0" max="100" value="60">
       </label>
       <label class="field">調弦 A=
         <select id="tuning">
