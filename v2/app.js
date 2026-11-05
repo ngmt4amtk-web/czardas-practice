@@ -28,7 +28,8 @@ const store = {
 const unitOf = value => (value === 2 || value === GROUP_UNIT ? value : 4);
 
 const state = {
-  unit: unitOf(store.get('unit', 4)),
+  // まとめは覚えない。開いた時の既定は4小節（本人 2026-11-05「デフォは4小節で」）。
+  unit: store.get('unit', 4) === 2 ? 2 : 4,
   range: {start: 1, end: 4},
   index: 0,
   tempo: store.get('tempo', SECTIONS[0].tempo),
@@ -388,7 +389,7 @@ for (const btn of document.querySelectorAll('.seg-btn')) {
     const unit = unitOf(Number(btn.dataset.unit));
     const wasFirst = state.range.start;
     state.unit = unit;
-    store.set('unit', unit);
+    if (unit !== GROUP_UNIT) store.set('unit', unit);
     paintUnit();
     stop();
     const list = listFor();
