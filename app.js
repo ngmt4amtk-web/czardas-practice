@@ -1,9 +1,9 @@
-import {PHRASES, SECTIONS, MEASURES, pitchLabel} from './score.mjs';
+import {SECTIONS, MEASURES, pitchLabel} from './score.mjs';
 import {engraveSystems} from './system.mjs';
 import {shiftsIn, firstStoppedIn, POSITION_NAMES, phraseTitle} from './marks.mjs';
 import {PhrasePlayer, phraseTimeline} from './playback.mjs';
 import {ViolinAudio} from './audio.mjs';
-import {parseRange, segments, phraseFor, stepRange, splitPhrase, MIN_MEASURE, MAX_MEASURE} from './route.mjs';
+import {parseRange, segments, phraseFor, stepRange, splitPhrase, GROUP_UNIT, MIN_MEASURE, MAX_MEASURE} from './route.mjs';
 
 const $ = id => document.getElementById(id);
 
@@ -25,7 +25,10 @@ const store = {
   },
 };
 
+const unitOf = value => (value === 2 || value === GROUP_UNIT ? value : 4);
+
 const state = {
+  // まとめは覚えない。開いた時の既定は4小節（本人 2026-11-05「デフォは4小節で」）。
   unit: store.get('unit', 4) === 2 ? 2 : 4,
   range: {start: 1, end: 4},
   index: 0,
@@ -46,6 +49,7 @@ const listFor = () => segments(state.unit);
 
 function titleFor(seg) {
   if (!seg) return '';
+  if (state.unit === GROUP_UNIT) return `フレーズ${seg.first}〜${seg.last}・${SECTIONS.find(s => s.start === seg.start)?.name || ''}`;
   const phrase = phraseFor(seg);
   if (!phrase) return '';
   const parts = state.unit === 2 ? splitPhrase(phrase, 2) : [phrase];
@@ -95,7 +99,8 @@ function paintRange() {
   const total = list.length;
 
   if (inList) {
-    $('range-title').textContent = state.unit === 2 ? `2小節 ${state.index + 1} / ${total}` : `フレーズ ${state.index + 1} / ${total}`;
+    const label = state.unit === GROUP_UNIT ? 'まとめ' : state.unit === 2 ? '2小節' : 'フレーズ';
+    $('range-title').textContent = `${label} ${state.index + 1} / ${total}`;
     $('range-sub').textContent = `${start}〜${end}小節・${titleFor(inList) || '（題なし）'}`;
   } else {
     $('range-title').textContent = start === end ? `${start}小節（自分で選んだ範囲）` : `${start}〜${end}小節（自分で選んだ範囲）`;
@@ -381,11 +386,11 @@ $('back-to-phrase').addEventListener('click', () => {
 
 for (const btn of document.querySelectorAll('.seg-btn')) {
   btn.addEventListener('click', () => {
-    const unit = Number(btn.dataset.unit) === 2 ? 2 : 4;
+    const unit = unitOf(Number(btn.dataset.unit));
     const wasFirst = state.range.start;
     state.unit = unit;
-    store.set('unit', unit);
-    for (const b of document.querySelectorAll('.seg-btn')) b.setAttribute('aria-pressed', String(Number(b.dataset.unit) === unit));
+    if (unit !== GROUP_UNIT) store.set('unit', unit);
+    paintUnit();
     stop();
     const list = listFor();
     const hit = list.findIndex(s => wasFirst >= s.start && wasFirst <= s.end);
@@ -393,10 +398,10 @@ for (const btn of document.querySelectorAll('.seg-btn')) {
   });
 }
 
-for (const btn of document.querySelectorAll('.seg-btn')) {
-  if (Number(btn.dataset.unit) === state.unit) btn.setAttribute('aria-pressed', 'true');
-  else btn.setAttribute('aria-pressed', 'false');
+function paintUnit() {
+  for (const btn of document.querySelectorAll('.seg-btn')) btn.setAttribute('aria-pressed', String(Number(btn.dataset.unit) === state.unit));
 }
+paintUnit();
 
 // 小節を選ぶ
 const pickerOpen = $('picker-open');
@@ -516,7 +521,13 @@ function boot() {
   $('tuning').value = String(state.tuning);
 
   const fromUrl = parseRange(location.search, location.hash);
-  const initial = fromUrl || {start: PHRASES[0].start, end: PHRASES[0].end};
+  // QRやリンクの範囲が区切りの一覧にあれば、その区切りで見せる（保存した単位は変えない）。
+  if (fromUrl) {
+    const unit = [state.unit, 4, 2, GROUP_UNIT].find(u => segments(u).some(s => s.start === fromUrl.start && s.end === fromUrl.end));
+    if (unit) state.unit = unit;
+    paintUnit();
+  }
+  const initial = fromUrl || listFor()[0];
   setRange(initial, {fromUrl: true});
   setStatus('タップで再生');
 }

@@ -25,7 +25,20 @@ export function parseRange(search = '', hash = '') {
   return null;
 }
 
-// 区切りの単位（4小節＝フレーズそのまま／2小節＝前半と後半。5小節のフレーズは 2+3）。
+// まとめ＝4フレーズずつの組（本人 2026-11-05「まとめて練習も出来たら良い」）。第1〜4、第5〜8…第21〜24の6組。
+export const GROUP_UNIT = 16;
+const GROUP_SIZE = 4;
+
+export function phraseGroups() {
+  const out = [];
+  for (let i = 0; i < PHRASES.length; i += GROUP_SIZE) {
+    const group = PHRASES.slice(i, i + GROUP_SIZE);
+    out.push({start: group[0].start, end: group.at(-1).end, first: i + 1, last: i + group.length});
+  }
+  return out;
+}
+
+// 区切りの単位（まとめ＝4フレーズずつ／4小節＝フレーズそのまま／2小節＝前半と後半。5小節のフレーズは 2+3）。
 export function splitPhrase(phrase, unit = 4) {
   if (unit !== 2) return [{start: phrase.start, end: phrase.end}];
   const length = phrase.end - phrase.start + 1;
@@ -37,6 +50,7 @@ export function splitPhrase(phrase, unit = 4) {
 }
 
 export function segments(unit = 4) {
+  if (unit === GROUP_UNIT) return phraseGroups();
   return PHRASES.flatMap(p => splitPhrase(p, unit));
 }
 
